@@ -68,19 +68,6 @@ def handle_delete(message):
     
     return response
 
-def handle_check(message):
-    list_id = message.get("list_id")
-    item_index = message.get("item_index")
-    response = {}
-
-    if list_id in shopping_lists and 0 <= item_index < len(shopping_lists[list_id]["items"]):
-        shopping_lists[list_id]["items"][item_index]["checked"] = True
-        response["status"] = "success"
-    else:
-        response["status"] = "error"
-        response["message"] = "Item not found or invalid index"
-    
-    return response
 
 def handle_update_quantity(message):
     list_id = message.get("list_id")
@@ -111,8 +98,6 @@ while True:
             response = handle_get_list_contents(message)
         elif action == "delete":
             response = handle_delete(message)
-        elif action == "check":
-            response = handle_check(message)
         elif action == "update_quantity":
             response = handle_update_quantity(message)
         # Add more handlers for other actions
