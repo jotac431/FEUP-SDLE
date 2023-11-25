@@ -24,13 +24,24 @@ def delete_item(list_id, item_index):
     response = socket.recv_json()
     return response["status"]
 
+def check_item(list_id, item_index):
+    socket.send_json({"action": "check", "list_id": list_id, "item_index": item_index})
+    response = socket.recv_json()
+    return response["status"]
+
+def update_quantity(list_id, item_index, new_quantity):
+    socket.send_json({"action": "update_quantity", "list_id": list_id, "item_index": item_index, "new_quantity": new_quantity})
+    response = socket.recv_json()
+    return response["status"]
+
 def print_list_contents(contents):
     print("Shopping List Contents:")
     if not contents:
         print("The list is empty.")
     else:
         for index, item in enumerate(contents, start=1):
-            print(f"{index}. {item['name']} - Quantity: {item['quantity']}")
+            checked_status = "Checked" if item.get("checked") else "Unchecked"
+            print(f"{index}. {item['name']} - Quantity: {item['quantity']} - {checked_status}")
 
 # User Interaction
 while True:
@@ -52,8 +63,10 @@ while True:
             print("\nOptions for the shopping list:")
             print("1. Add an item")
             print("2. Delete an item")
-            print("3. Back to main menu")
-            list_choice = input("Enter your choice (1/2/3): ")
+            print("3. Check an item")
+            print("4. Update quantity of an item")
+            print("5. Back to main menu")
+            list_choice = input("Enter your choice (1/2/3/4/5): ")
 
             if list_choice == "1":
                 item_name = input("Enter the name of the item to add: ")
@@ -71,6 +84,27 @@ while True:
                 else:
                     print("The list is empty.")
             elif list_choice == "3":
+                contents = get_list_contents(list_id)
+                print_list_contents(contents)
+                if contents:
+                    index_to_check = int(input("Enter the index of the item to check: ")) - 1
+                    check_item(list_id, index_to_check)
+                    contents = get_list_contents(list_id)  # Update contents after checking item
+                    print_list_contents(contents)
+                else:
+                    print("The list is empty.")
+            elif list_choice == "4":
+                contents = get_list_contents(list_id)
+                print_list_contents(contents)
+                if contents:
+                    index_to_update = int(input("Enter the index of the item to update: ")) - 1
+                    new_quantity = int(input("Enter the new quantity: "))
+                    update_quantity(list_id, index_to_update, new_quantity)
+                    contents = get_list_contents(list_id)  # Update contents after updating item
+                    print_list_contents(contents)
+                else:
+                    print("The list is empty.")
+            elif list_choice == "5":
                 break
-    else:
-        print("Invalid choice. Please enter 1 or 2.")
+            else:
+                print("Invalid choice. Please enter 1, 2, 3, 4, or 5.")
