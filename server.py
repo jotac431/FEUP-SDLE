@@ -1,13 +1,14 @@
 import zmq
 import uuid
 import json
+from collections import defaultdict
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
 socket.bind("tcp://*:5556")  # Bind to all network interfaces on port 5556
 
 # Simulated in-memory data storage for shopping lists
-shopping_lists = {}
+shopping_lists = defaultdict(dict)
 
 def print_shopping_lists():
     print("Current Shopping Lists:")
@@ -17,6 +18,25 @@ def print_shopping_lists():
         for item in data['items']:
             print(f"- {item['name']}: Quantity - {item['quantity']}")
         print("")
+
+def add_or_increment_item(list_id, item_name):
+    for item in shopping_lists[list_id]["items"]:
+        if item["name"] == item_name:
+            item["quantity"] += 1
+            return True  # Found and incremented the quantity for the existing item
+    # If item not found, add a new item to the list
+    shopping_lists[list_id]["items"].append({"name": item_name, "quantity": 1})
+    return True  # Added a new item
+
+def delete_or_decrement_item(list_id, item_index):
+    if 0 <= item_index < len(shopping_lists[list_id]["items"]):
+        item = shopping_lists[list_id]["items"][item_index]
+        if item["quantity"] > 1:
+            item["quantity"] -= 1
+        else:
+            del shopping_lists[list_id]["items"][item_index]
+        return True  # Deleted or decremented the quantity for the existing item
+    return False  # Invalid index
 
 while True:
     message = socket.recv_json()  # Receive JSON message from the client
@@ -32,8 +52,11 @@ while True:
         list_id = message.get("list_id")
         item_name = message.get("item_name")
         if list_id in shopping_lists:
-            shopping_lists[list_id]["items"].append({"name": item_name, "quantity": 1})  # Default quantity
-            response["status"] = "success"
+            if add_or_increment_item(list_id, item_name):
+                response["status"] = "success"
+            else:
+                response["status"] = "error"
+                response["message"] = "Item not found"
         else:
             response["status"] = "error"
             response["message"] = "List not found"
@@ -48,12 +71,14 @@ while True:
     elif action == "delete":
         list_id = message.get("list_id")
         item_index = message.get("item_index")
-        if list_id in shopping_lists and 0 <= item_index < len(shopping_lists[list_id]["items"]):
-            del shopping_lists[list_id]["items"][item_index]
-            response["status"] = "success"
+        if list_id in shopping_lists:
+            if delete_or_decrement_item(list_id, item_index):
+                response["status"] = "success"
+            else:
+                response["status"] = "error"
+                response["message"] = "Item not found or invalid index"
         else:
             response["status"] = "error"
-            response["message"] = "Item not found or invalid index"
-    # Implement other actions like delete, check, etc.
+            response["message"] = "List not found"
 
     socket.send_json(response)  # Send JSON response back to the client
