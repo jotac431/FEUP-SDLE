@@ -10,11 +10,12 @@ socket.connect("tcp://localhost:5556")  # Connect to the server
 
 # Local data storage
 shopping_lists = []
+user_id = str(uuid.uuid4())
 
 class LWWRegister:
-    def __init__(self, value=0, type='', time=0, client_id=''):
-        self.value = value
-        self.state = {'type': type, 'value': self.value, 'time': time, 'client_id': client_id}
+    def __init__(self, quantity=0, item_name='', time=0, client_id=''):
+        self.state = {'item_name': item_name, 'quantity': quantity, 'time': time, 'client_id': client_id}
+    
     
     def merge(self, remote):
         if self.state['time'] < remote['time']:
@@ -25,7 +26,6 @@ class LWWRegister:
         
 class LWWMap:
     def __init__(self):
-        self.value = 0
         self.list = []
     def merge(self, remote):
         for k in remote.list:
@@ -39,7 +39,7 @@ class ShoppingList:
         self.id = str(uuid.uuid4())
         self.name = name
         self.list = LWWMap()
-
+        
 def create_shopping_list(list_name):
     try:
         socket.send_json({"action": "create", "list_name": list_name})
@@ -71,6 +71,7 @@ def get_list_contents(list_id):
             return shopping_list
 
     try:
+        print("List does not exist locally. Checking server storage...")
         socket.send_json({"action": "get_list_contents", "list_id": list_id})
 
         poller = zmq.Poller()
@@ -80,6 +81,7 @@ def get_list_contents(list_id):
             response = socket.recv_json()
 
             if response and response.get("status") == "success":
+                print("List " + response.get("name") + " found.")
                 # Assuming the received list_contents is a list in the response
                 received_contents = response.get("list_contents")
                 # Populate the structure on the client side
@@ -100,11 +102,43 @@ def get_list_contents(list_id):
         return None  # Return None if an error occurs
 
 def print_list_contents(contents):
-    print(f"List Name: {contents.name}")
+    print(f"\n\n\nList Name: {contents.name}")
     for lww_register in contents.list.list:
-        print(f"Value: {lww_register.value}, State: {lww_register.state}")
-        
+        print(f"Item Name: {lww_register.state['item_name']}, Quantity: {lww_register.state['quantity']}, Time: {lww_register.state['time']}, Client ID: {lww_register.state['client_id']}")
 
+        
+def add_item(list_id, item_name):
+    for shopping_list in shopping_lists:
+        if shopping_list.id == list_id:
+            # Check if the item already exists in the list
+            for item in shopping_list.list.list:
+                if item.state['item_name'] == item_name:
+                    # Increment quantity if item exists
+                    item.state['quantity'] += 1
+                    print("Item exists. Incremented quantity.")
+                    return True
+            
+            # If item doesn't exist, create a new LWWRegister for the item and add it to the list
+            new_item = LWWRegister(quantity=1, item_name=item_name, time=int(time.time()), client_id=user_id)
+            print("Item does not exist. Adding item.")
+            shopping_list.list.list.append(new_item)
+            return True
+    print("List ID not found.")
+    return False
+
+
+def delete_item(list_id, item_name):
+    for shopping_list in shopping_lists:
+        if shopping_list.id == list_id:
+            for item in shopping_list.list.list:
+                if item.state['item_name'] == item_name:
+                    if item.state['quantity'] > 0:
+                        # Decrement quantity if more than 1 item exists
+                        item.state['quantity'] -= 1
+                        return True
+                    # Return True even if the quantity is 0
+                    return True
+    return False  # Return False if list_id is not found or item not found in the list
 
 
 
@@ -157,6 +191,7 @@ sync_thread.start()
 
 # User Interaction
 while True:
+    print("\n\nUser ID: " + user_id)
     print("Options:")
     print("1. Create a new shopping list")
     print("2. Enter an existing shopping list")
@@ -182,15 +217,15 @@ while True:
 
                 if list_choice == "1":
                     item_name = input("Enter the name of the item to add: ")
-                    # TODO : add_item(list_id, item_name)
+                    add_item(list_id, item_name)
                     contents = get_list_contents(list_id)  # Update contents after adding item
                     print_list_contents(contents)
                 elif list_choice == "2":
                     contents = get_list_contents(list_id)
                     print_list_contents(contents)
                     if contents:
-                        index_to_delete = int(input("Enter the index of the item to delete: ")) - 1
-                        # TODO : delete_item(list_id, index_to_delete)
+                        item_name = input("Enter the name of the item to delete: ")
+                        delete_item(list_id, item_name)
                         contents = get_list_contents(list_id)  # Update contents after deletion
                         print_list_contents(contents)
                     else:

@@ -14,9 +14,9 @@ socket.bind("tcp://*:5556")  # Bind to all network interfaces on port 5556
 shopping_lists = []
 
 class LWWRegister:
-    def __init__(self, value=0, type='', time=0, client_id=''):
-        self.value = value
-        self.state = {'type': type, 'value': self.value, 'time': time, 'client_id': client_id}
+    def __init__(self, quantity=0, item_name='', time=0, client_id=''):
+        self.state = {'item_name': item_name, 'quantity': quantity, 'time': time, 'client_id': client_id}
+    
     
     def merge(self, remote):
         if self.state['time'] < remote['time']:
@@ -27,7 +27,6 @@ class LWWRegister:
         
 class LWWMap:
     def __init__(self):
-        self.value = 0
         self.list = []
     def merge(self, remote):
         for k in remote.list:
