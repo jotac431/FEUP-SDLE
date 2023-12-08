@@ -84,23 +84,36 @@ def handle_get_list_contents(message):
 
 
 while True:
-    message = socket.recv_json()  # Receive JSON message from the client
-    action = message.get("action")
+    message = socket.recv_string()  # Receive string message from the client
     response = {}
     
     try:
+        if message == "PING":  # Handle the "PING" message separately
+            # Respond to the client to confirm server connectivity
+            socket.send_string("PONG")
+            continue  # Skip JSON deserialization for "PING" messages
+        
+        received_json = json.loads(message)  # Attempt JSON deserialization for other messages
+        action = received_json.get("action")
+        
         if action == "create":
             response = handle_create(message)
         elif action == "add":
-            response = handle_add(message)
+            response = handle_add(message) # TODO
         elif action == "get_list_contents":
             response = handle_get_list_contents(message)
         elif action == "delete":
-            response = handle_delete(message)
+            response = handle_delete(message) # TODO
         elif action == "update_quantity":
-            response = handle_update_quantity(message)
+            response = handle_update_quantity(message) # TODO
         # Add more handlers for other actions
 
+        socket.send_json(response)
+    except json.JSONDecodeError:
+        # Handle JSON decoding errors here
+        logger.error("Received invalid JSON message")
+        response["status"] = "error"
+        response["message"] = "Invalid JSON format"
         socket.send_json(response)
     except Exception as e:
         logger.error(f"An error occurred: {e}")

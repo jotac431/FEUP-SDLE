@@ -1,6 +1,8 @@
 import zmq
 import uuid
 import json
+import time
+import threading
 
 context = zmq.Context()
 socket = context.socket(zmq.REQ)
@@ -72,6 +74,56 @@ def print_list_contents(contents):
     print(f"List Name: {contents.name}")
     for lww_register in contents.list.list:
         print(f"Value: {lww_register.value}, State: {lww_register.state}")
+        
+
+
+
+
+# Function to periodically check server connectivity and synchronize data
+def synchronize_with_server():
+    while True:
+        try:
+            # Check server connectivity by attempting to connect
+            context_check = zmq.Context()
+            socket_check = context_check.socket(zmq.REQ)
+            socket_check.connect("tcp://localhost:5556")
+            socket_check.send_string("PING")  # Send a ping message to check connectivity
+            response = socket_check.recv_string()
+
+            if response == "PONG":  # Server responded, indicating connectivity
+                # Perform data synchronization with the server
+                # Implement logic to merge local data with server data here
+                
+                # For example:
+                # Iterate through local shopping_lists and send changes to the server
+                print("Connected!!!")
+                for local_list in shopping_lists:
+                    # Send updates to the server for each shopping list
+                    # Modify this part based on your merging logic
+                    socket_check.send_json({
+                        "action": "merge_with_server",
+                        "list_id": local_list.id,
+                        "list_contents": local_list.list  # Sending local list contents to merge
+                    })
+                    _ = socket_check.recv_json()  # Receive acknowledgment from the server
+                    
+                # After synchronization, you can break the loop or add a delay before checking again
+                # break  # Break the loop if synchronization is done
+        except zmq.error.ZMQError as e:
+            # Handle connection errors or any other exceptions here
+            print("Connection error:", e)
+        
+        # Add a delay before the next check
+        time.sleep(10)  # Check every 10 seconds
+
+# Start the synchronization thread
+sync_thread = threading.Thread(target=synchronize_with_server)
+sync_thread.daemon = True  # Set the thread as daemon so it exits when the main thread exits
+sync_thread.start()
+
+
+
+
 
 # User Interaction
 while True:
@@ -101,7 +153,7 @@ while True:
 
             if list_choice == "1":
                 item_name = input("Enter the name of the item to add: ")
-                add_item(list_id, item_name)
+                # TODO : add_item(list_id, item_name)
                 contents = get_list_contents(list_id)  # Update contents after adding item
                 print_list_contents(contents)
             elif list_choice == "2":
@@ -109,7 +161,7 @@ while True:
                 print_list_contents(contents)
                 if contents:
                     index_to_delete = int(input("Enter the index of the item to delete: ")) - 1
-                    delete_item(list_id, index_to_delete)
+                    # TODO : delete_item(list_id, index_to_delete)
                     contents = get_list_contents(list_id)  # Update contents after deletion
                     print_list_contents(contents)
                 else:
