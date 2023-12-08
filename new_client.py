@@ -46,7 +46,7 @@ def create_shopping_list(list_name):
         poller = zmq.Poller()
         poller.register(socket, zmq.POLLIN)
 
-        if poller.poll(timeout=3000):  # Waiting for 3 seconds for a response
+        if poller.poll(timeout=2000):  # Waiting for 2 seconds for a response
             response = socket.recv_json()
             new_shopping_list = ShoppingList(list_name)
             new_shopping_list.id = response["list_id"]
@@ -65,26 +65,39 @@ def create_shopping_list(list_name):
         return new_shopping_list.id  # Return the locally created ID
 
 def get_list_contents(list_id):
+    # Check local shopping_lists first
     for shopping_list in shopping_lists:
         if shopping_list.id == list_id:
             return shopping_list
-        
-    socket.send_json({"action": "get_list_contents", "list_id": list_id})
-    
-    response = socket.recv_json()
 
-    if response and response.get("status") == "success":
-        # Assuming the received list_contents is a list in the response
-        received_contents = response.get("list_contents")
-        # Populate the structure in the client side
-        new_list = ShoppingList(response.get("name")) 
-        for item in received_contents:
-            new_item = LWWRegister()  
-            new_item.value = item["value"]
-            new_item.state = item["state"]
-            new_list.append(new_item)
-        return new_list
-    return None  # Return None if the list_id is not found
+    try:
+        socket.send_json({"action": "get_list_contents", "list_id": list_id})
+
+        poller = zmq.Poller()
+        poller.register(socket, zmq.POLLIN)
+
+        if poller.poll(timeout=2000):  # Waiting for 2 seconds for a response
+            response = socket.recv_json()
+
+            if response and response.get("status") == "success":
+                # Assuming the received list_contents is a list in the response
+                received_contents = response.get("list_contents")
+                # Populate the structure on the client side
+                new_list = ShoppingList(response.get("name")) 
+                shopping_lists.append(new_list)
+                for item in received_contents:
+                    new_item = LWWRegister()  
+                    new_item.value = item["value"]
+                    new_item.state = item["state"]
+                    new_list.append(new_item)
+                return new_list
+        else:
+            print("Server is unreachable. Unable to get list contents.")
+            return None  # Return None if server is unreachable
+    except zmq.error.ZMQError as e:
+        # Handle connection-related errors
+        print("Error: ", e)
+        return None  # Return None if an error occurs
 
 def print_list_contents(contents):
     print(f"List Name: {contents.name}")
@@ -158,33 +171,34 @@ while True:
         contents = get_list_contents(list_id)
         if contents is not None:
             print_list_contents(contents)
+
+            # Check if contents exist before entering the nested menu
+            while True:
+                print("\nOptions for the shopping list:")
+                print("1. Add an item")
+                print("2. Delete an item")
+                print("3. Back to main menu")
+                list_choice = input("Enter your choice (1/2/3): ")
+
+                if list_choice == "1":
+                    item_name = input("Enter the name of the item to add: ")
+                    # TODO : add_item(list_id, item_name)
+                    contents = get_list_contents(list_id)  # Update contents after adding item
+                    print_list_contents(contents)
+                elif list_choice == "2":
+                    contents = get_list_contents(list_id)
+                    print_list_contents(contents)
+                    if contents:
+                        index_to_delete = int(input("Enter the index of the item to delete: ")) - 1
+                        # TODO : delete_item(list_id, index_to_delete)
+                        contents = get_list_contents(list_id)  # Update contents after deletion
+                        print_list_contents(contents)
+                    else:
+                        print("The list is empty.")
+                elif list_choice == "3":
+                    break
         else:
             print("List ID does not exist.")
-        
-        while True:
-            print("\nOptions for the shopping list:")
-            print("1. Add an item")
-            print("2. Delete an item")
-            print("3. Back to main menu")
-            list_choice = input("Enter your choice (1/2/3): ")
-
-            if list_choice == "1":
-                item_name = input("Enter the name of the item to add: ")
-                # TODO : add_item(list_id, item_name)
-                contents = get_list_contents(list_id)  # Update contents after adding item
-                print_list_contents(contents)
-            elif list_choice == "2":
-                contents = get_list_contents(list_id)
-                print_list_contents(contents)
-                if contents:
-                    index_to_delete = int(input("Enter the index of the item to delete: ")) - 1
-                    # TODO : delete_item(list_id, index_to_delete)
-                    contents = get_list_contents(list_id)  # Update contents after deletion
-                    print_list_contents(contents)
-                else:
-                    print("The list is empty.")
-            elif list_choice == "3":
-                break
     else:
         print("Invalid choice. Please enter 1 or 2.")
         
