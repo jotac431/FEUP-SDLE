@@ -39,14 +39,30 @@ class ShoppingList:
         self.id = str(uuid.uuid4())
         self.name = name
         self.list = LWWMap()
-        
+
 def create_shopping_list(list_name):
-    socket.send_json({"action": "create", "list_name": list_name})
-    response = socket.recv_json()
-    new_shopping_list = ShoppingList(list_name)
-    new_shopping_list.id = response["list_id"]
-    shopping_lists.append(new_shopping_list)
-    return response.get("list_id", None)
+    try:
+        socket.send_json({"action": "create", "list_name": list_name})
+        poller = zmq.Poller()
+        poller.register(socket, zmq.POLLIN)
+
+        if poller.poll(timeout=3000):  # Waiting for 3 seconds for a response
+            response = socket.recv_json()
+            new_shopping_list = ShoppingList(list_name)
+            new_shopping_list.id = response["list_id"]
+            shopping_lists.append(new_shopping_list)
+            return response.get("list_id", None)
+        else:
+            print("Server is unreachable. Creating shopping list locally.")
+            new_shopping_list = ShoppingList(list_name)
+            shopping_lists.append(new_shopping_list)
+            return new_shopping_list.id  # Return the locally created ID
+    except zmq.error.ZMQError as e:
+        # Server is unreachable, simulate creating the shopping list locally
+        print("Server is unreachable. Creating shopping list locally.")
+        new_shopping_list = ShoppingList(list_name)
+        shopping_lists.append(new_shopping_list)
+        return new_shopping_list.id  # Return the locally created ID
 
 def get_list_contents(list_id):
     for shopping_list in shopping_lists:
@@ -100,12 +116,13 @@ def synchronize_with_server():
                 for local_list in shopping_lists:
                     # Send updates to the server for each shopping list
                     # Modify this part based on your merging logic
-                    socket_check.send_json({
+                    print("Merging " + local_list.name)
+                    '''socket_check.send_json({
                         "action": "merge_with_server",
                         "list_id": local_list.id,
                         "list_contents": local_list.list  # Sending local list contents to merge
                     })
-                    _ = socket_check.recv_json()  # Receive acknowledgment from the server
+                    _ = socket_check.recv_json()  # Receive acknowledgment from the server'''
                     
                 # After synchronization, you can break the loop or add a delay before checking again
                 # break  # Break the loop if synchronization is done

@@ -85,6 +85,7 @@ def handle_get_list_contents(message):
 
 while True:
     message = socket.recv_string()  # Receive string message from the client
+    print(message)
     response = {}
     
     try:
@@ -93,28 +94,34 @@ while True:
             socket.send_string("PONG")
             continue  # Skip JSON deserialization for "PING" messages
         
-        received_json = json.loads(message)  # Attempt JSON deserialization for other messages
-        action = received_json.get("action")
+        try:
+            received_json = json.loads(message)  # Attempt JSON deserialization
+            if isinstance(received_json, dict):
+                action = received_json.get("action")
         
-        if action == "create":
-            response = handle_create(message)
-        elif action == "add":
-            response = handle_add(message) # TODO
-        elif action == "get_list_contents":
-            response = handle_get_list_contents(message)
-        elif action == "delete":
-            response = handle_delete(message) # TODO
-        elif action == "update_quantity":
-            response = handle_update_quantity(message) # TODO
-        # Add more handlers for other actions
-
-        socket.send_json(response)
-    except json.JSONDecodeError:
-        # Handle JSON decoding errors here
-        logger.error("Received invalid JSON message")
-        response["status"] = "error"
-        response["message"] = "Invalid JSON format"
-        socket.send_json(response)
+                if action == "create":
+                    response = handle_create(received_json)
+                elif action == "add":
+                    response = handle_add(received_json) # TODO
+                elif action == "get_list_contents":
+                    response = handle_get_list_contents(received_json)
+                elif action == "delete":
+                    response = handle_delete(received_json) # TODO
+                elif action == "update_quantity":
+                    response = handle_update_quantity(received_json) # TODO
+                # Add more handlers for other actions
+                
+                socket.send_json(response)
+            else:
+                logger.error("Received message is not a dictionary")
+                response["status"] = "error"
+                response["message"] = "Invalid message format"
+                socket.send_json(response)
+        except json.JSONDecodeError:
+            logger.error("Received invalid JSON message")
+            response["status"] = "error"
+            response["message"] = "Invalid JSON format"
+            socket.send_json(response)
     except Exception as e:
         logger.error(f"An error occurred: {e}")
         response["status"] = "error"
