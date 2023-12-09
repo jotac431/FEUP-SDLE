@@ -2,13 +2,63 @@ import zmq
 import uuid
 import json
 import logging
+import sys
+
+script_name = sys.argv[0]
+
+port = sys.argv[1]
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 context = zmq.Context()
 socket = context.socket(zmq.REP)
-socket.bind("tcp://*:5556")  # Bind to all network interfaces on port 5556
+socket.bind("tcp://*:" + str(port))  # Bind to all network interfaces on port 5556
+
+def replicate(t_port, list_name):
+    print("entrei")
+    try:
+        
+        context2 = zmq.Context()
+        socket2 = context2.socket(zmq.PUSH)
+        socket2.connect("tcp://127.0.0.1:" + str(t_port))
+        
+        message = {"list_name": list_name}
+        socket2.send_json(message)
+        
+        print(f"Message sent to port {t_port} with list_name: {list_name}")
+
+        socket2.disconnect("tcp://127.0.0.1:" + str(t_port))
+        
+        socket2.close()
+        context2.term()
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+def receive_replicate(t_port):
+    try:
+        context3 = zmq.Context()
+        socket3 = context3.socket(zmq.PULL)
+        socket3.connect("tcp://127.0.0.1:" + str(t_port))
+
+        # Receive the message from the sender
+        received_message = socket3.recv_json()
+        received_list_name = received_message.get("list_name", None)
+
+        if received_list_name is not None:
+            print(f"Received message on port {t_port} with list_name: {received_list_name}")
+
+        else:
+            print("Error: No list_name in the received message")
+
+        socket3.disconnect("tcp://127.0.0.1:" + str(t_port))
+        
+        socket3.close()
+        context3.term()
+
+    except Exception as e:
+        print(f"Error: {e}")
 
 # Data storage
 shopping_lists = []
@@ -48,6 +98,21 @@ def handle_create(message):
     list_name = message.get("list_name")
     print("Creating store named " + list_name)
     response = {}
+    
+    print(port)
+    
+    if port == "5001":
+        print("foi")
+        replicate(5002, list_name)
+    if port == "5002":
+        print("foi no segundo")
+        receive_replicate(5001)
+    
+    #for i in range(5001, 5003):
+    #    if(i != port):
+    #        replicate(i, list_name)
+    #    else:
+    #        receive_replicate(i)
     
     new_list = ShoppingList(list_name)
     shopping_lists.append(new_list)

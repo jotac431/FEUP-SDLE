@@ -3,10 +3,15 @@ import uuid
 import json
 import time
 import threading
+import sys
+
+script_name = sys.argv[0]
+
+port = sys.argv[1]
 
 context = zmq.Context()
 socket = context.socket(zmq.REQ)
-socket.connect("tcp://localhost:5556")  # Connect to the server
+socket.connect("tcp://localhost:" + str(port))  # Connect to the server
 
 # Local data storage
 shopping_lists = []
