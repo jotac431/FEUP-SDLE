@@ -224,7 +224,7 @@ def synchronize_with_server():
             print("Connection error:", e)
         
         # Add a delay before the next check
-        time.sleep(10)
+        time.sleep(2)
 
 
 # Start the synchronization thread

@@ -89,6 +89,7 @@ def handle_get_list_contents(message):
 
 # Function to handle synchronization with the server
 def handle_sync(data):
+    print("Synchronizing...")
     # Extract data sent by the client
     all_lists_data = data.get("all_lists_data", [])
     
