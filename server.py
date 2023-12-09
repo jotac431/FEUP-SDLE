@@ -27,13 +27,19 @@ class LWWRegister:
         
 class LWWMap:
     def __init__(self):
-        self.list = []
+        self.map_list = {}
+
     def merge(self, remote):
-        for k in remote.list:
-            if self.list[k]:
-                self.list[k].merge(self.list[k], remote.list[k])
+        for k in remote:
+            item_name = k['item_name']
+            if self.map_list.get(item_name):
+                print("Existent item. Merging...")
+                self.map_list[item_name].merge(k)
             else:
-                self.list[k] = remote.list[k]
+                print("Found new item. Adding instance...")
+                # Create a new LWWRegister instance and assign it to the item_name key
+                self.map_list[item_name] = LWWRegister(**k)
+
         
 class ShoppingList:
     def __init__(self, name):
@@ -57,7 +63,7 @@ def handle_create(message):
 def handle_get_list_contents(message):
     list_id = message.get("list_id")
     response = {}
-    print("Retreiving list with id " + list_id)
+    print("Retrieving list with id " + list_id)
     
     found_list = None
     for shopping_list in shopping_lists:
@@ -70,15 +76,70 @@ def handle_get_list_contents(message):
         response["status"] = "success"
         response["name"] = found_list.name
         response["list_contents"] = [{
-            "value": item.value,
-            "state": item.state
-        } for item in found_list.list.list]
+            "state": {
+                "item_name": item.state["item_name"],
+                "quantity": item.state["quantity"],
+                "time": item.state["time"],
+                "client_id": item.state["client_id"]
+            }
+        } for item in found_list.list.map_list.values()]  # Update list_contents structure
         print("Sending list " + found_list.name)
     else:
         response["status"] = "error"
         response["message"] = "List not found"
 
     return response
+
+# Function to handle synchronization with the server
+def handle_sync(data):
+    # Extract data sent by the client
+    all_lists_data = data.get("all_lists_data", [])
+    print(all_lists_data)
+    
+    # Create a set of received list IDs
+    received_list_ids = {list_data["list_id"] for list_data in all_lists_data}
+
+    # Merge received data with server data
+    for received_list_data in all_lists_data:
+        list_id = received_list_data["list_id"]
+        list_name = received_list_data["list_name"]
+        list_contents = received_list_data["list_contents"]
+
+        # Check if the shopping list exists, otherwise create a new one
+        existing_list = next((lst for lst in shopping_lists if lst.id == list_id), None)
+        if existing_list is None:
+            new_list = ShoppingList(list_name)
+            new_list.id = list_id
+            shopping_lists.append(new_list)
+            existing_list = new_list
+
+        # Merge contents with the existing list
+        print(f"Merging contents for list: {list_name}")
+        print(list_contents)
+        existing_list.list.merge(list_contents)
+
+    # Filter the shopping lists to include only the received ones
+    updated_contents = []
+    for lst in shopping_lists:
+        if lst.id in received_list_ids:
+            list_data = {
+                "list_id": lst.id,
+                "list_name": lst.name,
+                "list_contents": [
+                    {
+                        "item_name": item.state['item_name'],
+                        "quantity": item.state['quantity'],
+                        "time": item.state['time'],
+                        "client_id": item.state['client_id']
+                    }
+                    for item in lst.list.map_list.values()
+                ]
+            }
+            updated_contents.append(list_data)
+
+    response = {"status": "success", "updated_contents": updated_contents}
+    return response
+
 
 
 
@@ -100,14 +161,10 @@ while True:
         
                 if action == "create":
                     response = handle_create(received_json)
-                elif action == "add":
-                    response = handle_add(received_json) # TODO
                 elif action == "get_list_contents":
                     response = handle_get_list_contents(received_json)
-                elif action == "delete":
-                    response = handle_delete(received_json) # TODO
-                elif action == "update_quantity":
-                    response = handle_update_quantity(received_json) # TODO
+                elif action == "sync_with_server":
+                    response = handle_sync(received_json)
                 # Add more handlers for other actions
                 
                 socket.send_json(response)
@@ -126,43 +183,3 @@ while True:
         response["status"] = "error"
         response["message"] = "Internal server error"
         socket.send_json(response)
-
-    """if action == "create":
-        new_list_id = str(uuid.uuid4())
-        shopping_lists[new_list_id] = {"list_name": message.get("list_name"), "items": []}
-        response["status"] = "success"
-        response["list_id"] = new_list_id
-    elif action == "add":
-        list_id = message.get("list_id")
-        item_name = message.get("item_name")
-        if list_id in shopping_lists:
-            if add_or_increment_item(list_id, item_name):
-                response["status"] = "success"
-            else:
-                response["status"] = "error"
-                response["message"] = "Item not found"
-        else:
-            response["status"] = "error"
-            response["message"] = "List not found"
-    elif action == "get_list_contents":
-        list_id = message.get("list_id")
-        if list_id in shopping_lists:
-            response["status"] = "success"
-            response["list_contents"] = shopping_lists[list_id]["items"]
-        else:
-            response["status"] = "error"
-            response["message"] = "List not found"
-    elif action == "delete":
-        list_id = message.get("list_id")
-        item_index = message.get("item_index")
-        if list_id in shopping_lists:
-            if delete_or_decrement_item(list_id, item_index):
-                response["status"] = "success"
-            else:
-                response["status"] = "error"
-                response["message"] = "Item not found or invalid index"
-        else:
-            response["status"] = "error"
-            response["message"] = "List not found"
-
-    socket.send_json(response)  # Send JSON response back to the client"""

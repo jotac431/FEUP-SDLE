@@ -26,14 +26,14 @@ class LWWRegister:
         
 class LWWMap:
     def __init__(self):
-        self.list = []
+        self.map_list = {}
     def merge(self, remote):
-        for k in remote.list:
-            if self.list[k]:
-                self.list[k].merge(self.list[k], remote.list[k])
+        for k in remote:
+            if len(self.map_list) > k:
+                self.map_list[k['item_name']].merge(k)
             else:
-                self.list[k] = remote.list[k]
-
+                self.map_list[k['item_name']] = k
+        
 class ShoppingList:
     def __init__(self, name):
         self.id = str(uuid.uuid4())
@@ -88,10 +88,13 @@ def get_list_contents(list_id):
                 new_list = ShoppingList(response.get("name")) 
                 shopping_lists.append(new_list)
                 for item in received_contents:
-                    new_item = LWWRegister()  
-                    new_item.value = item["value"]
-                    new_item.state = item["state"]
-                    new_list.append(new_item)
+                    new_item = LWWRegister(
+                        quantity=item["state"]["quantity"],
+                        item_name=item["state"]["item_name"],
+                        time=item["state"]["time"],
+                        client_id=item["state"]["client_id"]
+                    )
+                    new_list.list.map_list[item["state"]["item_name"]] = new_item  # Update map_list structure
                 return new_list
         else:
             print("Server is unreachable. Unable to get list contents.")
@@ -103,26 +106,29 @@ def get_list_contents(list_id):
 
 def print_list_contents(contents):
     print(f"\n\n\nList Name: {contents.name}")
-    for lww_register in contents.list.list:
-        print(f"Item Name: {lww_register.state['item_name']}, Quantity: {lww_register.state['quantity']}, Time: {lww_register.state['time']}, Client ID: {lww_register.state['client_id']}")
+    for item_name, lww_register in contents.list.map_list.items():
+        print(f"Item Name: {item_name}, Quantity: {lww_register.state['quantity']}, Time: {lww_register.state['time']}, Client ID: {lww_register.state['client_id']}")
+
 
         
 def add_item(list_id, item_name):
     for shopping_list in shopping_lists:
         if shopping_list.id == list_id:
             # Check if the item already exists in the list
-            for item in shopping_list.list.list:
-                if item.state['item_name'] == item_name:
-                    # Increment quantity if item exists
-                    item.state['quantity'] += 1
-                    print("Item exists. Incremented quantity.")
-                    return True
-            
+            if item_name in shopping_list.list.map_list:
+                # Increment quantity if item exists
+                shopping_list.list.map_list[item_name].state['quantity'] += 1
+                shopping_list.list.map_list[item_name].state['time'] = int(time.time())
+                shopping_list.list.map_list[item_name].state['client_id'] = user_id
+                print("Item exists. Incremented quantity.")
+                return True
+
             # If item doesn't exist, create a new LWWRegister for the item and add it to the list
             new_item = LWWRegister(quantity=1, item_name=item_name, time=int(time.time()), client_id=user_id)
+            shopping_list.list.map_list[item_name] = new_item
             print("Item does not exist. Adding item.")
-            shopping_list.list.list.append(new_item)
             return True
+    
     print("List ID not found.")
     return False
 
@@ -130,15 +136,16 @@ def add_item(list_id, item_name):
 def delete_item(list_id, item_name):
     for shopping_list in shopping_lists:
         if shopping_list.id == list_id:
-            for item in shopping_list.list.list:
-                if item.state['item_name'] == item_name:
-                    if item.state['quantity'] > 0:
-                        # Decrement quantity if more than 1 item exists
-                        item.state['quantity'] -= 1
-                        return True
-                    # Return True even if the quantity is 0
+            if item_name in shopping_list.list.map_list:
+                item = shopping_list.list.map_list[item_name]
+                if item.state['quantity'] > 0:
+                    item.state['quantity'] -= 1
+                    item.state['time'] = int(time.time())
+                    item.state['client_id'] = user_id
                     return True
+                return True
     return False  # Return False if list_id is not found or item not found in the list
+
 
 
 
@@ -150,35 +157,43 @@ def synchronize_with_server():
             context_check = zmq.Context()
             socket_check = context_check.socket(zmq.REQ)
             socket_check.connect("tcp://localhost:5556")
-            socket_check.send_string("PING")  # Send a ping message to check connectivity
+            socket_check.send_string("PING")
             response = socket_check.recv_string()
 
-            if response == "PONG":  # Server responded, indicating connectivity
-                # Perform data synchronization with the server
-                # Implement logic to merge local data with server data here
-                
-                # For example:
-                # Iterate through local shopping_lists and send changes to the server
+            if response == "PONG":
                 print("Connected!!!")
+                # Prepare data to send to the server
+                all_lists_data = []
                 for local_list in shopping_lists:
-                    # Send updates to the server for each shopping list
-                    # Modify this part based on your merging logic
-                    print("Merging " + local_list.name)
-                    '''socket_check.send_json({
-                        "action": "merge_with_server",
+                    list_data = {
                         "list_id": local_list.id,
-                        "list_contents": local_list.list  # Sending local list contents to merge
-                    })
-                    _ = socket_check.recv_json()  # Receive acknowledgment from the server'''
-                    
-                # After synchronization, you can break the loop or add a delay before checking again
-                # break  # Break the loop if synchronization is done
+                        "list_name": local_list.name,
+                        "list_contents": [
+                            {
+                                "item_name": item.state['item_name'],
+                                "quantity": item.state['quantity'],
+                                "time": item.state['time'],
+                                "client_id": item.state['client_id']
+                            }
+                            for item in local_list.list.map_list.values()
+                        ]
+                    }
+                    all_lists_data.append(list_data)
+
+                # Send all shopping lists to the server for synchronization
+                socket_check.send_json({
+                    "action": "sync_with_server",
+                    "all_lists_data": all_lists_data
+                })
+                _ = socket_check.recv_string()
+                
         except zmq.error.ZMQError as e:
             # Handle connection errors or any other exceptions here
             print("Connection error:", e)
         
         # Add a delay before the next check
-        time.sleep(10)  # Check every 10 seconds
+        time.sleep(10)
+
 
 # Start the synchronization thread
 sync_thread = threading.Thread(target=synchronize_with_server)
