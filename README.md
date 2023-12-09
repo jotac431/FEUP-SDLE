@@ -3,6 +3,9 @@ FEUP - Sistemas Distribuídos de Larga Escala
 
 Concurrent shopping list Application
 
+Server:
+- To establish connection with the server, type in a command line "python3 server.py".
+
 User Interface:
 - In command line type "python3 client.py", it open an user interface to create or enter a shopping list with a shopping list ID.
 It creates a new User ID when it starts application.
