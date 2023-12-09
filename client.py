@@ -260,7 +260,8 @@ while True:
                 print("1. Add an item")
                 print("2. Delete an item")
                 print("3. Back to main menu")
-                list_choice = input("Enter your choice (1/2/3): ")
+                print("4. Refresh")
+                list_choice = input("Enter your choice (1/2/3/4): ")
 
                 if list_choice == "1":
                     item_name = input("Enter the name of the item to add: ")
@@ -279,6 +280,9 @@ while True:
                         print("The list is empty.")
                 elif list_choice == "3":
                     break
+                elif list_choice == "4":
+                    print_list_contents(contents)
+                    continue
         else:
             print("List ID does not exist.")
     else:
