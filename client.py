@@ -16,7 +16,6 @@ class LWWRegister:
     def __init__(self, quantity=0, item_name='', time=0, client_id=''):
         self.state = {'item_name': item_name, 'quantity': quantity, 'time': time, 'client_id': client_id}
     
-    
     def merge(self, remote):
         if self.state['time'] < remote['time']:
             self.state = remote
@@ -27,18 +26,24 @@ class LWWRegister:
 class LWWMap:
     def __init__(self):
         self.map_list = {}
+
     def merge(self, remote):
         for k in remote:
-            if len(self.map_list) > k:
-                self.map_list[k['item_name']].merge(k)
+            item_name = k['item_name']
+            if self.map_list.get(item_name):
+                self.map_list[item_name].merge(k)
             else:
-                self.map_list[k['item_name']] = k
-        
+                # Create a new LWWRegister instance and assign it to the item_name key
+                self.map_list[item_name] = LWWRegister(**k)
+                
 class ShoppingList:
     def __init__(self, name):
         self.id = str(uuid.uuid4())
         self.name = name
         self.list = LWWMap()
+        
+        
+        
         
 def create_shopping_list(list_name):
     try:
@@ -85,7 +90,8 @@ def get_list_contents(list_id):
                 # Assuming the received list_contents is a list in the response
                 received_contents = response.get("list_contents")
                 # Populate the structure on the client side
-                new_list = ShoppingList(response.get("name")) 
+                new_list = ShoppingList(response.get("name"))
+                new_list.id = list_id
                 shopping_lists.append(new_list)
                 for item in received_contents:
                     new_item = LWWRegister(
@@ -108,7 +114,9 @@ def print_list_contents(contents):
     print(f"\n\n\nList Name: {contents.name}")
     for item_name, lww_register in contents.list.map_list.items():
         print(f"Item Name: {item_name}, Quantity: {lww_register.state['quantity']}, Time: {lww_register.state['time']}, Client ID: {lww_register.state['client_id']}")
-
+def print_all_lists():
+    for shopping_list in shopping_lists:
+        print_list_contents(shopping_list)
 
         
 def add_item(list_id, item_name):
@@ -149,6 +157,26 @@ def delete_item(list_id, item_name):
 
 
 
+def update_local_data(server_response):
+    if server_response.get("status") == "success":
+        updated_contents = server_response.get("updated_contents", [])
+
+        for updated_list in updated_contents:
+            list_id = updated_list["list_id"]
+            list_name = updated_list["list_name"]
+            list_contents = updated_list["list_contents"]
+
+            # Find the shopping list or create a new one if it doesn't exist
+            existing_list = next((lst for lst in shopping_lists if lst.id == list_id), None)
+            if existing_list is None:
+                new_list = ShoppingList(list_name)
+                new_list.id = list_id
+                shopping_lists.append(new_list)
+                existing_list = new_list
+
+            # Merge the received content with the existing list
+            existing_list.list.merge(list_contents)
+
 # Function to periodically check server connectivity and synchronize data
 def synchronize_with_server():
     while True:
@@ -161,7 +189,6 @@ def synchronize_with_server():
             response = socket_check.recv_string()
 
             if response == "PONG":
-                print("Connected!!!")
                 # Prepare data to send to the server
                 all_lists_data = []
                 for local_list in shopping_lists:
@@ -185,7 +212,12 @@ def synchronize_with_server():
                     "action": "sync_with_server",
                     "all_lists_data": all_lists_data
                 })
-                _ = socket_check.recv_string()
+                
+                # Receive updated contents from the server
+                server_response = socket_check.recv_json()
+                
+                # Process and update the local data based on server response
+                update_local_data(server_response)
                 
         except zmq.error.ZMQError as e:
             # Handle connection errors or any other exceptions here

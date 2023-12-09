@@ -17,7 +17,6 @@ class LWWRegister:
     def __init__(self, quantity=0, item_name='', time=0, client_id=''):
         self.state = {'item_name': item_name, 'quantity': quantity, 'time': time, 'client_id': client_id}
     
-    
     def merge(self, remote):
         if self.state['time'] < remote['time']:
             self.state = remote
@@ -33,10 +32,8 @@ class LWWMap:
         for k in remote:
             item_name = k['item_name']
             if self.map_list.get(item_name):
-                print("Existent item. Merging...")
                 self.map_list[item_name].merge(k)
             else:
-                print("Found new item. Adding instance...")
                 # Create a new LWWRegister instance and assign it to the item_name key
                 self.map_list[item_name] = LWWRegister(**k)
 
@@ -94,7 +91,6 @@ def handle_get_list_contents(message):
 def handle_sync(data):
     # Extract data sent by the client
     all_lists_data = data.get("all_lists_data", [])
-    print(all_lists_data)
     
     # Create a set of received list IDs
     received_list_ids = {list_data["list_id"] for list_data in all_lists_data}
@@ -114,8 +110,6 @@ def handle_sync(data):
             existing_list = new_list
 
         # Merge contents with the existing list
-        print(f"Merging contents for list: {list_name}")
-        print(list_contents)
         existing_list.list.merge(list_contents)
 
     # Filter the shopping lists to include only the received ones
@@ -140,12 +134,20 @@ def handle_sync(data):
     response = {"status": "success", "updated_contents": updated_contents}
     return response
 
+def print_list_contents(contents):
+    print(f"\n\n\nList Name: {contents.name}")
+    for item_name, lww_register in contents.list.map_list.items():
+        print(f"Item Name: {item_name}, Quantity: {lww_register.state['quantity']}, Time: {lww_register.state['time']}, Client ID: {lww_register.state['client_id']}")
+
+def print_all_lists():
+    for shopping_list in shopping_lists:
+        print_list_contents(shopping_list)
+
 
 
 
 while True:
     message = socket.recv_string()  # Receive string message from the client
-    print(message)
     response = {}
     
     try:
