@@ -4,9 +4,21 @@ import json
 import time
 import threading
 
+# Static server IDs
+server5556 = "5556"
+server5557 = "5557"
+server5558 = "5558"
+
+# Range of list IDs to each server
+server_ranges = {
+    server5556: (0, 999),    # IDs from 0 to 999
+    server5557: (1000, 1999),  # IDs from 1000 to 1999
+    server5558: (2000, 2999)  # IDs from 2000 to 2999
+}
+
 context = zmq.Context()
 socket = context.socket(zmq.REQ)
-socket.connect("tcp://localhost:5556")  # Connect to the server
+socket.connect("tcp://localhost:5556")  # Connect to the server 5556
 
 # Local data storage
 shopping_lists = []
@@ -41,6 +53,20 @@ class ShoppingList:
         self.id = str(uuid.uuid4())
         self.name = name
         self.list = LWWMap()
+        
+
+
+
+
+def get_server_for_list(list_id):
+    # Convert UUID to an integer using its hash value
+    int_list_id = uuid.UUID(list_id).int % 3000  # Modulo 3000 to limit within 0-2999
+
+    for server, (start, end) in server_ranges.items():
+        if start <= int_list_id <= end:
+            return server
+        
+    return None  # Return None if list ID doesn't fall into any range
         
         
         
@@ -77,13 +103,18 @@ def get_list_contents(list_id):
 
     try:
         print("List does not exist locally. Checking server storage...")
-        socket.send_json({"action": "get_list_contents", "list_id": list_id})
+        assigned_server = get_server_for_list(list_id)
+        context = zmq.Context()
+        socket1 = context.socket(zmq.REQ)
+        socket1.connect("tcp://localhost:" + assigned_server)  # Connect to the server
+        socket1.send_json({"action": "get_list_contents", "list_id": list_id})
+        print("Connected to server " + assigned_server)
 
         poller = zmq.Poller()
-        poller.register(socket, zmq.POLLIN)
+        poller.register(socket1, zmq.POLLIN)
 
         if poller.poll(timeout=2000):  # Waiting for 2 seconds for a response
-            response = socket.recv_json()
+            response = socket1.recv_json()
 
             if response and response.get("status") == "success":
                 print("List " + response.get("name") + " found.")
@@ -159,39 +190,42 @@ def delete_item(list_id, item_name):
 
 def update_local_data(server_response):
     if server_response.get("status") == "success":
-        updated_contents = server_response.get("updated_contents", [])
+        updated_list = server_response.get("updated_contents", {})
 
-        for updated_list in updated_contents:
-            list_id = updated_list["list_id"]
-            list_name = updated_list["list_name"]
-            list_contents = updated_list["list_contents"]
+        list_id = updated_list.get("list_id")
+        list_name = updated_list.get("list_name")
+        list_contents = updated_list.get("list_contents", [])
 
-            # Find the shopping list or create a new one if it doesn't exist
-            existing_list = next((lst for lst in shopping_lists if lst.id == list_id), None)
-            if existing_list is None:
-                new_list = ShoppingList(list_name)
-                new_list.id = list_id
-                shopping_lists.append(new_list)
-                existing_list = new_list
+        # Find the shopping list or create a new one if it doesn't exist
+        existing_list = next((lst for lst in shopping_lists if lst.id == list_id), None)
+        if existing_list is None:
+            new_list = ShoppingList(list_name)
+            new_list.id = list_id
+            shopping_lists.append(new_list)
+            existing_list = new_list
 
-            # Merge the received content with the existing list
-            existing_list.list.merge(list_contents)
+        # Merge the received content with the existing list
+        existing_list.list.merge(list_contents)
 
-# Function to periodically check server connectivity and synchronize data
+# Function to synchronize data with servers
 def synchronize_with_server():
     while True:
         try:
-            # Check server connectivity by attempting to connect
-            context_check = zmq.Context()
-            socket_check = context_check.socket(zmq.REQ)
-            socket_check.connect("tcp://localhost:5556")
-            socket_check.send_string("PING")
-            response = socket_check.recv_string()
-
-            if response == "PONG":
-                # Prepare data to send to the server
-                all_lists_data = []
-                for local_list in shopping_lists:
+            for local_list in shopping_lists:
+                # Get the server for the current list
+                assigned_server = get_server_for_list(local_list.id)
+                
+                # Connect to the server for this shopping list
+                context_check = zmq.Context()
+                socket_check = context_check.socket(zmq.REQ)
+                socket_check.connect("tcp://localhost:" + assigned_server)
+                
+                # Check server connectivity
+                socket_check.send_string("PING")
+                response = socket_check.recv_string()
+                
+                if response == "PONG":
+                    # Prepare data to send to the server
                     list_data = {
                         "list_id": local_list.id,
                         "list_name": local_list.name,
@@ -205,26 +239,27 @@ def synchronize_with_server():
                             for item in local_list.list.map_list.values()
                         ]
                     }
-                    all_lists_data.append(list_data)
 
-                # Send all shopping lists to the server for synchronization
-                socket_check.send_json({
-                    "action": "sync_with_server",
-                    "all_lists_data": all_lists_data
-                })
+                    # Send shopping list to the server for synchronization
+                    socket_check.send_json({
+                        "action": "sync_with_server",
+                        "list_data": list_data
+                    })
+
+                    # Receive updated contents from the server
+                    server_response = socket_check.recv_json()
+
+                    # Process and update the local data based on server response
+                    update_local_data(server_response)
                 
-                # Receive updated contents from the server
-                server_response = socket_check.recv_json()
-                
-                # Process and update the local data based on server response
-                update_local_data(server_response)
-                
+                socket_check.close()  # Close the socket after processing
         except zmq.error.ZMQError as e:
             # Handle connection errors or any other exceptions here
             print("Connection error:", e)
         
-        # Add a delay before the next check
+        # Add a delay before the next synchronization attempt
         time.sleep(2)
+
 
 
 # Start the synchronization thread
